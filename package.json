@@ -1,5 +1,5 @@
 {
-  "name": "local-npm",
+  "name": "fee-local-npm",
   "version": "2.2.2",
   "description": "Local and offline-first npm mirror",
   "main": "lib/index.js",
@@ -8,11 +8,11 @@
     "test": "tape test/**.js",
     "coverage": "tap test/**.js --coverage --coverage-report=html",
     "start": "node ./bin/index.js",
-    "build": "NODE_ENV=production webpack --progress",
+    "build": "cross-env NODE_ENV=production webpack --progress",
     "dev": "webpack-dev-server --hot"
   },
   "engines": {
-    "node": ">= 6"
+    "node": ">= 10"
   },
   "author": {
     "name": "Nolan Lawson",
@@ -37,9 +37,9 @@
     "express": "^4.16.2",
     "express-http-proxy": "^1.0.7",
     "express-pouchdb": "^2.3.7",
-    "level": "^1.7.0",
+    "level": "^6.0.1",
     "mkdirp": "^0.5.1",
-    "pouchdb": "^6.3.4",
+    "pouchdb": "^7.2.2",
     "request": "^2.83.0",
     "response-time": "^2.3.2",
     "semver": "^5.4.1",
@@ -53,6 +53,7 @@
     "babel-polyfill": "^6.26.0",
     "babel-preset-es2015": "^6.24.1",
     "babel-preset-react": "^6.24.1",
+    "cross-env": "^7.0.3",
     "css-loader": "^0.28.7",
     "eslint": "^4.9.0",
     "eslint-plugin-react": "^7.4.0",
