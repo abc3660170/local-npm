@@ -1,23 +1,34 @@
-#!/usr/bin/env node
-const program = require('commander');
+#!/usr/bin/env ts-node
+import localNpm from "../lib/index.js";
+import { Command }  from "commander";
+import packageJson from "../package.json" assert  { type: "json" };
 
+const program = new Command();
 program
-  .version(require('../package.json').version)
-  .option('-p, --port [port]', 'The port to run local-npm on', 5080)
-  .option('-pp, --pouch-port [port]', 'The port to run the pouch db server on', 16984)
-  .option('-l, --log-level [level]', 'The level to log information to the console from local-npm', 'error')
+  .version(packageJson.version)
+  .option('-p, --port [port]', 'The port to run local-npm on', '18000')
+  .option('-l, --log-level [level]', 'The level to log information to the console from local-npm', 'debug')
   .option('-r, --remote [url]', 'The registry to fallback information gathering and tars on', 'https://registry.npmjs.org')
   .option('-rs, --remote-skim [url]', 'The remote skimdb to sync couchdb information from', 'https://replicate.npmjs.com')
-  .option('-u, --url [url]', 'The default access url that local-npm will be hosted on', 'http://127.0.0.1:5080')
-  .option('-d, --directory [directory]', 'directory to store data', './')
+  .option('-u, --url [url]', 'The default access url that local-npm will be hosted on', 'http://0.0.0.0:5080')
+  .option('-d, --directory [directory]', 'directory to store data', './db')
   .parse(process.argv);
 
-require('../lib/index')({
-    port: program.port,
-    pouchPort: program.pouchPort,
-    logLevel: program.logLevel,
-    remote: program.remote,
-    remoteSkim: program.remoteSkim,
-    url: program.url,
-    directory: program.directory
+const options = program.opts();
+
+const { start } = await localNpm({
+    port: options.port,
+    levelPort: options.port,
+    logLevel: options.logLevel,
+    remote: options.remote,
+    url: options.url,
+    from: 'npm',
+    directory: options.directory
 });
+
+try {
+  const addr = await start()
+  console.log(`启动成功：${addr}`)
+} catch (error) {
+  console.log('启动失败',error)
+}
