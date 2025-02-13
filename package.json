@@ -10,6 +10,10 @@
     "dev": "nodemon --watch \"lib/**/*.ts\" --exec node --loader ts-node/esm \"./src/dev.ts\"",
     "build": "rollup -c rollup.config.js && tsup lib/index.ts --format esm --dts --outDir dist"
   },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "engines": {
     "node": ">= 10"
   },
@@ -22,7 +26,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/abc3660170/local-npm.git"
+    "url": "git+https://github.com/abc3660170/local-npm.git"
   },
   "license": "Apache-2.0",
   "dependencies": {
