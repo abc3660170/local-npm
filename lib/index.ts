@@ -15,7 +15,7 @@ interface Ioptions {
   remote: string;
   port: number;
   from: "npm" | "pelipper"; //npm代表外部网络，pelipper代表内网
-  levelPort: number;
+  // levelPort: number;
   directory: string;
   url: string;
   logLevel: string;

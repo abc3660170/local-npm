@@ -7,7 +7,7 @@
   "scripts": {
     "coverage": "tap test/**.js --coverage --coverage-report=html",
     "start": "node ./bin/index.js",
-    "dev": "nodemon --watch \"lib/**/*.ts\" --exec node --loader ts-node/esm \"./bin/index.js\"",
+    "dev": "nodemon --watch \"lib/**/*.ts\" --exec node --loader ts-node/esm \"./src/dev.ts\"",
     "build": "rollup -c rollup.config.js && tsup lib/index.ts --format esm --dts --outDir dist"
   },
   "engines": {

@@ -1,5 +1,5 @@
 #!/usr/bin/env ts-node
-import localNpm from "../lib/index.js";
+import localNpm from "../dist/index.js";
 import { Command }  from "commander";
 import packageJson from "../package.json" assert  { type: "json" };
 
