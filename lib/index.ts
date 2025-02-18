@@ -52,6 +52,9 @@ export default async (
   const directory = path.resolve(options.directory);
   mkdirSync(directory, { recursive: true });
   const fastify = Fastify({
+    requestTimeout: 0,
+    keepAliveTimeout: 0,
+    connectionTimeout: 0,
     disableRequestLogging: true,
     logger: {
       level: options.logLevel,
@@ -67,7 +70,7 @@ export default async (
   });
   await fastify.register(cors);
 
-  await fastify.register(import("@fastify/compress"));
+  await fastify.register(import("@fastify/compress"), { global: false});
 
   // 清除旧数据
   if (existsSync(directory)) {
@@ -79,11 +82,11 @@ export default async (
   });
   // fastify.register(import("@fastify/leveldb"), { name: "db", path: directory });
 
-  fastify.log.info("Welcome");
-  fastify.log.info("To start using local-npm, just run: ");
-  fastify.log.info(`   $ npm set registry ${localBase}`);
-  fastify.log.info("To switch back, you can run: ");
-  fastify.log.info(`   $ npm set registry ${FAT_REMOTE}`);
+  // fastify.log.info("Welcome");
+  // fastify.log.info("To start using local-npm, just run: ");
+  // fastify.log.info(`   $ npm set registry ${localBase}`);
+  // fastify.log.info("To switch back, you can run: ");
+  // fastify.log.info(`   $ npm set registry ${FAT_REMOTE}`);
 
   fastify.get("/", (_, res) => {
     res.send("welcome");
@@ -118,7 +121,7 @@ export default async (
         const doc = await getDocument(name);
         return reply.send(massageMetadata(localBase, doc));
       } catch (error) {
-        reply.status(500).send({
+        return reply.status(500).send({
           error,
         });
       }
@@ -179,11 +182,12 @@ export default async (
     },
     async (request, reply) => {
       const { name, version } = request.params;
-      return handleTarball(reply, {
+      handleTarball(reply, {
         pkgFullName: name,
         pkgVersion: version,
         from
       });
+      return reply;
     }
   );
 
@@ -209,7 +213,7 @@ export default async (
     },
     async (request, reply) => {
       const { name, version, user } = request.params;
-      return handleTarball(reply, {
+      return await handleTarball(reply, {
         pkgFullName: `${user}/${name}`,
         pkgVersion: version,
         from
@@ -250,14 +254,16 @@ export default async (
         });
       } else {
         loggerHit(pkgName, pkgVersion);
-        return sendBinary(reply, buffer);
+        sendBinary(reply, buffer);
+        return reply;
       }
     } catch (error) {
       loggerMiss(pkgName, pkgVersion);
       try {
         const location = await getTarLocation(versionMeta!, options.from);
         const buffer = await downloadTar(id, location);
-        return sendBinary(reply, buffer);
+        sendBinary(reply, buffer);
+        return reply;
       } catch (error) {
         return reply.status(500).send(error);
       }
@@ -300,7 +306,7 @@ export default async (
   const sendBinary = (reply: FastifyReply, buffer: ArrayBuffer) => {
     reply.header("Content-Type", "application/octet-stream");
     reply.header("content-length", buffer.byteLength);
-    return reply.send(buffer);
+    reply.send(buffer);
   };
   
   const getDocument = async (name: string) => {

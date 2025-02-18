@@ -7,7 +7,7 @@ const { start } = await localNpm({
     remote: 'https://registry.npmjs.org',
     from: 'npm',
     directory: './db',
-    url: ""
+    url: "http://192.168.2.99:18000"
 });
 
 try {
