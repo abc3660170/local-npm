@@ -310,18 +310,19 @@ export default async (
   };
   
   const getDocument = async (name: string) => {
-    const data = await db.get(name);
-    if (data) {
-      // 本地库有 packument 数据直接返回
+    try {
+      const data = await db.get(name);
       return data as ModifiedPackument;
+    } catch (error) {
+      if(error.code === 'LEVEL_NOT_FOUND') {
+        // 本地库没有 packument， 从uplink上获取
+        const url = `${FAT_REMOTE}/${name}`;
+        const res = await axiosInstance.get(url);
+        const modifiedPackument: ModifiedPackument = res.data;
+        delete modifiedPackument._rev;
+        await db.put(name, modifiedPackument);
+      }
     }
-  
-    // 本地库没有 packument， 从uplink上获取
-    const url = `${FAT_REMOTE}/${name}`;
-    const res = await axiosInstance.get(url);
-    const modifiedPackument: ModifiedPackument = res.data;
-    delete modifiedPackument._rev;
-    await db.put(name, modifiedPackument);
     return (await db.get(name)) as ModifiedPackument;
   };
   

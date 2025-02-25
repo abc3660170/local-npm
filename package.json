@@ -35,7 +35,7 @@
     "@fastify/http-proxy": "^9.0.0",
     "@fastify/static": "^7.0.4",
     "axios": "^1.7.9",
-    "classic-level": "^2.0.0",
+    "classic-level": "^1.4.1",
     "commander": "^12.1.0",
     "corser": "^2.0.0",
     "fastify": "^4.29.0",
