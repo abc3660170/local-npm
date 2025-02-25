@@ -1,6 +1,6 @@
 {
   "name": "fee-local-npm",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "description": "Local and offline-first npm mirror",
   "type": "module",
   "main": "dist/index.js",
