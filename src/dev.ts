@@ -5,7 +5,7 @@ const { start } = await localNpm({
     port: 18000,
     logLevel: 'debug',
     remote: 'https://registry.npmjs.org',
-    from: 'npm',
+    from: 'npmjs',
     directory: './db',
     url: "http://192.168.2.99:18000"
 });

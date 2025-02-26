@@ -2,7 +2,7 @@ import Fastify, { FastifyInstance, FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import proxy from "@fastify/http-proxy";
 import path from "path";
-import { rmSync, existsSync, mkdirSync } from "fs";
+import { mkdirSync } from "fs";
 import { ClassicLevel } from "classic-level";
 import axiosInstance from "./axiosInstance.js";
 import semver from "semver";
@@ -14,7 +14,7 @@ import { PackumentVersion } from "@npm/types";
 interface Ioptions {
   remote: string;
   port: number;
-  from: "npm" | "pelipper"; //npm代表外部网络，pelipper代表内网
+  from: "npmjs" | "pelipper"; //npm代表外部网络，pelipper代表内网
   // levelPort: number;
   directory: string;
   url: string;
@@ -73,9 +73,9 @@ export default async (
   await fastify.register(import("@fastify/compress"), { global: false});
 
   // 清除旧数据
-  if (existsSync(directory)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
+  // if (existsSync(directory)) {
+  //   rmSync(directory, { recursive: true, force: true });
+  // }
 
   const db = new ClassicLevel<string, Record<string, any>>(directory, {
     valueEncoding: "json",
@@ -233,7 +233,7 @@ export default async (
     options: {
       pkgFullName: string;
       pkgVersion: string;
-      from: 'npm' | 'pelipper'
+      from: 'npmjs' | 'pelipper'
     }
   ) => {
     const { pkgFullName: pkgName, pkgVersion } = options;
@@ -278,7 +278,7 @@ export default async (
     fastify.log.info(`tgz:${name}-${version} is not exist!`);
   };
   
-  const getTarLocation = async (versionMeta: PackumentVersion, from: 'npm' | 'pelipper') => {
+  const getTarLocation = async (versionMeta: PackumentVersion, from: 'npmjs' | 'pelipper') => {
     if (versionMeta.info && from !== "pelipper") {
       const res = await axiosInstance.get<PackumentVersion>(
         versionMeta.info as string
