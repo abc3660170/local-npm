@@ -44,9 +44,11 @@ const start = (fastify: FastifyInstance, options: Ioptions) => {
 export default async (
   options: Ioptions,
 ) => {
-  const FAT_REMOTE = options.remote;
+  const from = options.from || "npmjs";
+  const noUplink = from === "pelipper";
+  const FAT_REMOTE = noUplink ? 'http://127.0.0.1' : options.remote;
   const port = options.port;
-  const from = options.from || "npm";
+  
   // const levelPort = options.levelPort;
   const localBase = options.url.replace(/:5080$/, ":" + port); // port is configurable
   const directory = path.resolve(options.directory);
@@ -149,16 +151,23 @@ export default async (
     async (request, reply) => {
       const { name, version } = request.params;
       request.log.debug(`请求的包信息：${name}:${version}`);
-      const doc = await getDocument(name);
-      const packageMetadata = massageMetadata(localBase, doc);
-      const versionMetadata = findVersion(packageMetadata, version);
-      if (versionMetadata) {
-        cacheResponse(reply, doc._rev);
-        return reply.send(versionMetadata);
+      try {
+        const doc = await getDocument(name);
+        const packageMetadata = massageMetadata(localBase, doc);
+        const versionMetadata = findVersion(packageMetadata, version);
+        if (versionMetadata) {
+          cacheResponse(reply, doc._rev);
+          return reply.send(versionMetadata);
+        }
+        return reply.status(404).send({
+          error: `version not found:${version}`,
+        });
+      } catch (error) {
+        return reply.status(500).send({
+          error,
+        });
       }
-      return reply.status(404).send({
-        error: `version not found:${version}`,
-      });
+      
     }
   );
 
@@ -238,10 +247,17 @@ export default async (
   ) => {
     const { pkgFullName: pkgName, pkgVersion } = options;
     const id = `${pkgName}-${pkgVersion}`;
-    const doc = await getDocument(pkgName);
-    const versionMeta = doc.versions[pkgVersion];
-    const dist = versionMeta?.dist;
+    let versionMeta: PackumentVersion | undefined;
+
     try {
+      const doc = await getDocument(pkgName);
+      versionMeta = doc.versions[pkgVersion];
+    } catch (error) {
+      return reply.status(500).send(error);
+    }
+
+    try {
+      const dist = versionMeta?.dist;
       const buffer = await db.get<string, ArrayBuffer>(id, {
         valueEncoding: "binary",
       });
@@ -249,8 +265,10 @@ export default async (
       hash.update(Buffer.from(buffer));
       if (dist?.shasum !== hash.digest("hex")) {
         // 验证防止文件流出现异常，产生垃圾
+        const errorMsg = `tgz:${pkgName}-${pkgVersion}哈希值不匹配，不返回结果！`
+        fastify.log.error(errorMsg);
         return reply.status(500).send({
-          error: "tgz哈希值不匹配，不返回结果！",
+          error: errorMsg,
         });
       } else {
         loggerHit(pkgName, pkgVersion);
@@ -259,6 +277,13 @@ export default async (
       }
     } catch (error) {
       loggerMiss(pkgName, pkgVersion);
+      if(noUplink) {
+        const errorMsg = `内网竟然没有这个包：${pkgName}@${pkgVersion}`
+        fastify.log.error(errorMsg);
+        return reply.status(404).send({
+          error: errorMsg,
+        });
+      }
       try {
         const location = await getTarLocation(versionMeta!, options.from);
         const buffer = await downloadTar(id, location);
@@ -312,15 +337,20 @@ export default async (
   const getDocument = async (name: string) => {
     try {
       const data = await db.get(name);
+      fastify.log.debug(`从本地库获取到包信息：${name}`);
       return data as ModifiedPackument;
     } catch (error) {
-      if(error.code === 'LEVEL_NOT_FOUND') {
+      if(error.code === 'LEVEL_NOT_FOUND' && !noUplink) {
         // 本地库没有 packument， 从uplink上获取
         const url = `${FAT_REMOTE}/${name}`;
         const res = await axiosInstance.get(url);
         const modifiedPackument: ModifiedPackument = res.data;
         delete modifiedPackument._rev;
         await db.put(name, modifiedPackument);
+        fastify.log.debug(`从上游成功入库了包信息：${name}`);
+      } else {
+        fastify.log.error(`这是内网不应该没这个包信息：${name}`);
+        throw error;
       }
     }
     return (await db.get(name)) as ModifiedPackument;
@@ -348,12 +378,14 @@ export default async (
         // apparently some npm modules like handlebars
         // have invalid semver ranges, and npm deletes them
         // on-the-fly
+        fastify.log.warn(`这是一个无效版本: ${name}@${version}`);
         delete doc.versions[version];
       } else {
         const versionValue = doc.versions[version];
         if (versionValue) {
-          versionValue.dist.tarball =
-            urlBase + "/" + "tarballs/" + name + "/" + version + ".tgz";
+          const tgzUrl = urlBase + "/" + "tarballs/" + name + "/" + version + ".tgz";
+          fastify.log.debug(`本地 ${name}@${version} tgz路径:${tgzUrl}`);
+          versionValue.dist.tarball = tgzUrl;
           // versionValue.dist['info'] = urlBase + "/" + name + "/" + version;
           versionValue["info"] = urlBase + "/" + name + "/" + version;
         }

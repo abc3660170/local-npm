@@ -22,7 +22,7 @@ const { start } = await localNpm({
     logLevel: options.logLevel,
     remote: options.remote,
     url: options.url,
-    from: 'npm',
+    from: 'npmjs',
     directory: options.directory
 });
 
