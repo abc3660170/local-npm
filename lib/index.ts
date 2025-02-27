@@ -156,6 +156,7 @@ export default async (
         const packageMetadata = massageMetadata(localBase, doc);
         const versionMetadata = findVersion(packageMetadata, version);
         if (versionMetadata) {
+          request.log.debug(`找到的版本信息：${name}:${version}`);
           cacheResponse(reply, doc._rev);
           return reply.send(versionMetadata);
         }
@@ -322,6 +323,7 @@ export default async (
       await db.put(id, response.data, {
         valueEncoding: "binary",
       });
+      fastify.log.debug(`下载并入库了包：${id}`);
       return response.data;
     } catch (error) {
       throw error;
@@ -384,7 +386,6 @@ export default async (
         const versionValue = doc.versions[version];
         if (versionValue) {
           const tgzUrl = urlBase + "/" + "tarballs/" + name + "/" + version + ".tgz";
-          fastify.log.debug(`本地 ${name}@${version} tgz路径:${tgzUrl}`);
           versionValue.dist.tarball = tgzUrl;
           // versionValue.dist['info'] = urlBase + "/" + name + "/" + version;
           versionValue["info"] = urlBase + "/" + name + "/" + version;
