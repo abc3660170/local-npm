@@ -15,6 +15,7 @@ interface Ioptions {
   remote: string;
   port: number;
   from: "npmjs" | "pelipper"; //npm代表外部网络，pelipper代表内网
+  method: "pull" | "push";
   // levelPort: number;
   directory: string;
   url: string;
@@ -45,7 +46,7 @@ export default async (
   options: Ioptions,
 ) => {
   const from = options.from || "npmjs";
-  const noUplink = from === "pelipper";
+  const noUplink = from === "pelipper" && options.method === 'push';
   const FAT_REMOTE = noUplink ? 'http://127.0.0.1' : options.remote;
   const port = options.port;
   
