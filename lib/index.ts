@@ -11,6 +11,20 @@ import findVersion from "./find-version.js";
 import { createHash } from "crypto";
 import { PackumentVersion } from "@npm/types";
 
+// in-flight 请求合并：同一 key 的并发请求共用一个 Promise
+function makeInFlight<T>() {
+  const pending = new Map<string, Promise<T>>();
+  return (key: string, fn: () => Promise<T>): Promise<T> => {
+    const existing = pending.get(key);
+    if (existing) return existing;
+    const p = Promise.resolve()
+      .then(fn)
+      .finally(() => pending.delete(key));
+    pending.set(key, p);
+    return p;
+  };
+}
+
 interface Ioptions {
   remote: string;
   port: number;
@@ -83,6 +97,10 @@ export default async (
   const db = new ClassicLevel<string, Record<string, any>>(directory, {
     valueEncoding: "json",
   });
+
+  // 同名 manifest / 同 id tarball 的并发请求共享结果，避免 N 个并发触发 N 次上游下载 + 写竞争
+  const inFlightDoc = makeInFlight<ModifiedPackument>();
+  const inFlightTar = makeInFlight<ArrayBuffer>();
   // fastify.register(import("@fastify/leveldb"), { name: "db", path: directory });
 
   // fastify.log.info("Welcome");
@@ -239,6 +257,14 @@ export default async (
     httpMethods: ["PUT"],
   });
   
+  const safeError = (reply: FastifyReply, error: any) => {
+    if (reply.sent) {
+      fastify.log.warn(`error after reply sent: ${error?.message ?? error}`);
+      return reply;
+    }
+    return reply.status(500).send(error);
+  };
+
   const handleTarball = async (
     reply: FastifyReply,
     options: {
@@ -254,46 +280,50 @@ export default async (
     try {
       const doc = await getDocument(pkgName);
       versionMeta = doc.versions[pkgVersion];
+      if (!versionMeta) {
+        return reply.status(404).send({
+          error: `version not found: ${pkgVersion}`,
+        });
+      }
     } catch (error) {
-      return reply.status(500).send(error);
+      return safeError(reply, error);
     }
 
+    const dist = versionMeta.dist;
+
+    // 先查缓存
     try {
-      const dist = versionMeta?.dist;
       const buffer = await db.get<string, ArrayBuffer>(id, {
         valueEncoding: "binary",
       });
-      const hash = createHash("sha1");
-      hash.update(Buffer.from(buffer));
-      if (dist?.shasum !== hash.digest("hex")) {
-        // 验证防止文件流出现异常，产生垃圾
-        const errorMsg = `tgz:${pkgName}-${pkgVersion}哈希值不匹配，不返回结果！`
-        fastify.log.error(errorMsg);
-        return reply.status(500).send({
-          error: errorMsg,
-        });
+      const actual = createHash("sha1").update(Buffer.from(buffer)).digest("hex");
+      if (dist?.shasum && dist.shasum !== actual) {
+        // 缓存里是坏数据（上一次写入了垃圾），清掉走重新下载，不再直接 500
+        fastify.log.warn(`cached tgz shasum mismatch, refetching: ${id}`);
+        await db.del(id).catch(() => {});
       } else {
         loggerHit(pkgName, pkgVersion);
         sendBinary(reply, buffer);
         return reply;
       }
+    } catch (_e) {
+      // LEVEL_NOT_FOUND -- 走下载流程
+    }
+
+    loggerMiss(pkgName, pkgVersion);
+    if (noUplink) {
+      const errorMsg = `内网竟然没有这个包：${pkgName}@${pkgVersion}`;
+      fastify.log.error(errorMsg);
+      return reply.status(404).send({ error: errorMsg });
+    }
+
+    try {
+      const location = await getTarLocation(versionMeta, options.from);
+      const buffer = await downloadTar(id, location, dist?.shasum);
+      if (!reply.sent) sendBinary(reply, buffer);
+      return reply;
     } catch (error) {
-      loggerMiss(pkgName, pkgVersion);
-      if(noUplink) {
-        const errorMsg = `内网竟然没有这个包：${pkgName}@${pkgVersion}`
-        fastify.log.error(errorMsg);
-        return reply.status(404).send({
-          error: errorMsg,
-        });
-      }
-      try {
-        const location = await getTarLocation(versionMeta!, options.from);
-        const buffer = await downloadTar(id, location);
-        sendBinary(reply, buffer);
-        return reply;
-      } catch (error) {
-        return reply.status(500).send(error);
-      }
+      return safeError(reply, error);
     }
   };
   
@@ -316,19 +346,32 @@ export default async (
     }
   };
   
-  const downloadTar = async (id: string, tarball: string) => {
-    try {
+  // 严格校验：空 body / shasum 不匹配都不落盘；同 id 并发请求合并为一次下载
+  const downloadTar = async (
+    id: string,
+    tarball: string,
+    expectedShasum?: string
+  ): Promise<ArrayBuffer> => {
+    return inFlightTar(id, async () => {
       const response = await axiosInstance.get(tarball, {
         responseType: "arraybuffer",
       });
-      await db.put(id, response.data, {
-        valueEncoding: "binary",
-      });
+      const buf = response.data as ArrayBuffer;
+      if (!buf || buf.byteLength === 0) {
+        throw new Error(`empty body from upstream for ${tarball}`);
+      }
+      if (expectedShasum) {
+        const actual = createHash("sha1").update(Buffer.from(buf)).digest("hex");
+        if (actual !== expectedShasum) {
+          throw new Error(
+            `shasum mismatch for ${id}: expected ${expectedShasum} got ${actual}`
+          );
+        }
+      }
+      await db.put(id, buf, { valueEncoding: "binary" });
       fastify.log.debug(`下载并入库了包：${id}`);
-      return response.data;
-    } catch (error) {
-      throw error;
-    }
+      return buf;
+    });
   };
   
   const sendBinary = (reply: FastifyReply, buffer: ArrayBuffer) => {
@@ -337,26 +380,27 @@ export default async (
     reply.send(buffer);
   };
   
-  const getDocument = async (name: string) => {
-    try {
-      const data = await db.get(name);
-      fastify.log.debug(`从本地库获取到包信息：${name}`);
-      return data as ModifiedPackument;
-    } catch (error) {
-      if(error.code === 'LEVEL_NOT_FOUND' && !noUplink) {
-        // 本地库没有 packument， 从uplink上获取
-        const url = `${FAT_REMOTE}/${name}`;
-        const res = await axiosInstance.get(url);
-        const modifiedPackument: ModifiedPackument = res.data;
-        delete modifiedPackument._rev;
-        await db.put(name, modifiedPackument);
-        fastify.log.debug(`从上游成功入库了包信息：${name}`);
-      } else {
+  // 同名 manifest 并发请求合并为一次，避免雪崩
+  const getDocument = async (name: string): Promise<ModifiedPackument> => {
+    return inFlightDoc(name, async () => {
+      try {
+        const data = await db.get(name);
+        fastify.log.debug(`从本地库获取到包信息：${name}`);
+        return data as ModifiedPackument;
+      } catch (error: any) {
+        if (error?.code === "LEVEL_NOT_FOUND" && !noUplink) {
+          const url = `${FAT_REMOTE}/${name}`;
+          const res = await axiosInstance.get(url);
+          const modifiedPackument: ModifiedPackument = res.data;
+          delete modifiedPackument._rev;
+          await db.put(name, modifiedPackument);
+          fastify.log.debug(`从上游成功入库了包信息：${name}`);
+          return modifiedPackument;
+        }
         fastify.log.error(`这是内网不应该没这个包信息：${name}`);
         throw error;
       }
-    }
-    return (await db.get(name)) as ModifiedPackument;
+    });
   };
   
   const cacheResponse = (reply: FastifyReply, etag: string | undefined) => {
